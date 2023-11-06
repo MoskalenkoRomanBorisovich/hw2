@@ -14,8 +14,7 @@
 
 #include "utils.h"
 #include "typedefs.h"
-
-
+#include "matmul.cuh"
 
 template <int mem_type> // type from memory_types to use
 void cu_benchmark_func(

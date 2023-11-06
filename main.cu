@@ -1,6 +1,6 @@
 #include "source/matmul.cuh"
 #include "source/utils.h"
-#include "source/benchmark.h"
+#include "source/benchmark.cuh"
 
 void benchmark_all(
     unsigned int seed,
