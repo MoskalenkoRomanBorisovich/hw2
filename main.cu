@@ -11,7 +11,7 @@ void benchmark_all(
     // double t_sec[n_functions];
     // double flops[n_functions];
     char func_names[n_functions][15] = { "simple", "pinned", "managed",  "simple, sh", "pinned, sh", "managed, sh" };
-    double gflop_ms = get_flop_count(N, N, N) * 1e-12;
+    double gflop_ms = get_flop_count(N, N, N) * 1e-6;
     // cu_benchmark_func<mt_unified>(functions, n_functions, N, n_runs, seed, t_sec, flops);
     float* time_ms = benchmark_all(n_runs, N);
     { // pretty print
@@ -58,6 +58,8 @@ int main(int argc, char** argv) {
     default:
         break;
     }
+
+    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 
     benchmark_all(seed, n_runs, N);
     return 0;

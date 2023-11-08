@@ -146,14 +146,13 @@ float* benchmark_all(
 
     // time measuring wrapper
     const auto& time_wrap = [&](const auto& f) {
-        cudaEventRecord(start, 0);
-        cudaEventRecord(stop, 0);
+        cudaEventRecord(start);
 
         const double* hc = f();
+        cudaEventRecord(stop);
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&cur_time, start, stop);
         tot_time[i] += cur_time;
-
         if (double* c_cur = c + i * N2;hc != c_cur) // copy result to result matrix array
             memcpy(c_cur, hc, bytes);
         ++i;
@@ -172,17 +171,17 @@ float* benchmark_all(
         for (uint_fast8_t cmm = 0; cmm < cmm_last; ++cmm) {
             time_wrap(
                 [&]() {
-                    matmul_cuda(N, N, N, a, b, c + i * N2, mt_simple, cmm);
+                    matmul_cuda(N, N, N, a, b, c + i * N2, mt_simple, cmm, 1);
                     return c + i * N2;
                 });
             time_wrap(
                 [&]() {
-                    matmul_cuda(N, N, N, ha, hb, hc, mt_pinned, cmm);
+                    matmul_cuda(N, N, N, ha, hb, hc, mt_pinned, cmm, 1);
                     return hc;
                 });
             time_wrap(
                 [&]() {
-                    matmul_cuda(N, N, N, ma, mb, mc, mt_unified, cmm);
+                    matmul_cuda(N, N, N, ma, mb, mc, mt_unified, cmm, 1);
                     return mc;
                 });
         }

@@ -62,7 +62,7 @@ __global__ void d_matmul_shared(
 
 
     constexpr uint_fast16_t bsize = 32;
-    __shared__ double sh_a[bsize][bsize];
+    __shared__ double sh_a[bsize][bsize]; // transposed
     __shared__ double sh_b[bsize][bsize];
 
     const uint_fast32_t k_blocks = K / blockDim.x;
@@ -73,23 +73,23 @@ __global__ void d_matmul_shared(
 
     for (uint_fast32_t k = 0; k < k_blocks; ++k) {
         // a_col = k * blockDim.x + threadIdx.y;
-        sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k * blockDim.x + threadIdx.y)];
+        sh_a[threadIdx.y][threadIdx.x] = da[row + M * (k * blockDim.x + threadIdx.y)];
         // b_row = k * blockDim.x + threadIdx.x
         sh_b[threadIdx.x][threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < blockDim.x; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[kb][threadIdx.x] * sh_b[kb][threadIdx.y];
         }
         __syncthreads();
     }
 
     if (const uint_fast32_t kr = K % bsize; kr != 0) {
-        sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
+        sh_a[threadIdx.y][threadIdx.x] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
 
         sh_b[threadIdx.x][threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < kr; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[kb][threadIdx.x] * sh_b[kb][threadIdx.y];
         }
     }
 
@@ -107,7 +107,8 @@ void matmul_cuda(
     double* hb,
     double* hc,
     const uint_fast8_t mem_type, // type of memory allocation of ha, hb, hc
-    const uint_fast8_t kernel_type // type of kernel
+    const uint_fast8_t kernel_type, // type of kernel
+    const uint_fast8_t n_streams // number of cuda streams
 )
 {
     assert(mem_type < mt_last);
@@ -119,6 +120,8 @@ void matmul_cuda(
     const uint_fast32_t a_size = M * K;
     const uint_fast32_t b_size = K * N;
     const uint_fast32_t c_size = M * N;
+
+    cudaStream_t stream[n_streams];
     if (mem_type == mt_simple || mem_type == mt_pinned) {
         cudaMalloc((void**)&da, a_size * sizeof(double));
         cudaMalloc((void**)&db, b_size * sizeof(double));
