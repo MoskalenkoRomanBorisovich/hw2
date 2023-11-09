@@ -57,7 +57,8 @@ void benchmark_all(
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&cur_time, start, stop);
         tot_time[i] += cur_time;
-        if (double* c_cur = c + i * N2;hc != c_cur) // copy result to result matrix array
+        double* c_cur = c + i * N2;
+        if (hc != c_cur) // copy result to result matrix array
             memcpy(c_cur, hc, bytes);
         ++i;
         };
@@ -181,7 +182,7 @@ void test_all(
     cudaMallocManaged(&mb, bytes);
     cudaMallocManaged(&mc, bytes);
 
-    uint32_t i; // utility function counter
+    uint32_t i = 0; // utility function counter
 
     // time measuring
     cudaEvent_t start, stop;
@@ -201,7 +202,8 @@ void test_all(
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&cur_time, start, stop);
         tot_time[i] += cur_time;
-        if (double* c_cur = c + i * N2;hc != c_cur) // copy result to result matrix array
+        double* c_cur = c + i * N2;
+        if (hc != c_cur) // copy result to result matrix array
             memcpy(c_cur, hc, bytes);
         ++i;
         };
