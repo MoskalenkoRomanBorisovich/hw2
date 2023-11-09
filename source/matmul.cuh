@@ -48,7 +48,11 @@ std::vector<uint_fast32_t> get_stream_cols_div_by_block(uint_fast32_t N, uint_fa
     if (const uint_fast32_t re = N % size; re != 0) {
         res[used_streams - 1] = re;
     }
-    std::exclusive_scan(res.begin(), res.end(), res.begin(), 0);
+    uint_fast32_t sum = 0;
+    for (uint_fast32_t& r : res) {
+        std::swap(r, sum);
+        sum += r;
+    }
     return res;
 }
 
