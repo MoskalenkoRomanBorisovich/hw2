@@ -126,8 +126,8 @@ __global__ void d_matmul_shared(
         }
         __syncthreads();
     }
-
-    if (const uint_fast32_t kr = K % bsize; kr != 0) {
+    const uint_fast32_t kr = K % bsize;
+    if (kr != 0) {
         if (is_row && threadIdx.y < kr)
             sh_a[threadIdx.y][threadIdx.x] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
 
