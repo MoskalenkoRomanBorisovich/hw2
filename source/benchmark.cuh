@@ -39,7 +39,7 @@ void benchmark_all(
     cudaMallocManaged(&mb, bytes);
     cudaMallocManaged(&mc, bytes);
 
-    uint32_t i; // utility function counter
+    uint32_t i = 0; // utility function counter
 
     // time measuring
     cudaEvent_t start, stop;
