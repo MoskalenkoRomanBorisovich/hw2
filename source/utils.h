@@ -32,11 +32,17 @@ void random_mod10_mat(double* a, uint32_t size) {
 /*
     prints column-major matrix
 */
-void print_matrix(double* a, uint_fast64_t n, uint_fast64_t m)
+void print_matrix(double* a, uint_fast64_t N, uint_fast64_t M, uint_fast64_t n = 0, uint_fast64_t m = 0)
 {
+    if (n <= 0) {
+        n = N;
+    }
+    if (m <= 0) {
+        m = M;
+    }
     for (uint_fast64_t i = 0; i < n; i++) {
         for (uint_fast64_t j = 0; j < m; j++) {
-            printf("%f ", a[j * n + i]);
+            printf("%f ", a[j * N + i]);
         }
         printf("\n");
     }
@@ -59,7 +65,7 @@ double mat_diff(const double* a, const double* b, uint_fast64_t N, uint_fast64_t
     double d;
     for (uint_fast64_t i = 0, i_end = N * M; i < i_end; ++i) {
         d = a[i] - b[i];
-        res += d * d;
+        res = std::max(d * d, res);
     }
     return res;
 }

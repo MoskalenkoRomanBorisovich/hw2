@@ -13,19 +13,19 @@ enum memory_types {
 
 // string names of corrsponding types form memory_types
 char memory_names[mt_last][15] = {
-    "mt_simple",
-    "mt_pinned",
-    "mt_unified"
+    "Simple",
+    "Pinned",
+    "Unified"
 };
 
 // cuda matrix multiplication kernels
 enum cmm_kernels {
-    cmm_simple = 0,
+    cmm_simple,
     cmm_shared,
-    cmm_last
+    cmm_last,
 };
 
 char kernel_names[cmm_last][15] = {
-    "cmm_simple",
-    "cmm_shared",
+    "Simple",
+    "SHared",
 };
