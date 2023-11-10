@@ -22,10 +22,14 @@ char memory_names[mt_last][15] = {
 enum cmm_kernels {
     cmm_simple,
     cmm_shared,
+    cmm_shared_2,
+    cmm_shared_3,
     cmm_last,
 };
 
 char kernel_names[cmm_last][15] = {
     "Simple",
-    "SHared",
+    "Shared",
+    "Shared_2",
+    "Shared_3",
 };
