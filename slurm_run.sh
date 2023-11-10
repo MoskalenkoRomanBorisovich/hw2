@@ -9,6 +9,7 @@
 
 mkdir -p bemchmark_results
 
+module load module load nvidia_sdk/nvhpc/23.5
 N_RUNS=10
 SEED=12345
 
