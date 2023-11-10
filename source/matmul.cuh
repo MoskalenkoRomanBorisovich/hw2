@@ -268,11 +268,36 @@ void matmul_cuda(
     double* ha,
     double* hb,
     double* hc,
-    const uint_fast32_t mem_type, // type of memory allocation of ha, hb, hc
     const uint_fast32_t kernel_type, // type of kernel
     uint_fast32_t n_streams // number of cuda streams
 )
 {
+
+    uint_fast32_t mem_type = 0; // type of memory allocation of ha, hb, hc
+    {
+        cudaPointerAttributes a_atr, b_atr, c_atr;
+        cudaPointerGetAttributes(&a_atr, ha);
+        cudaPointerGetAttributes(&b_atr, hb);
+        cudaPointerGetAttributes(&c_atr, hc);
+        if (a_atr.type != b_atr.type || a_atr.type != b_atr.type)
+            throw std::logic_error("ERROR: not matching memory types are not supported");
+
+        switch (a_atr.type)
+        {
+        case cudaMemoryTypeHost:
+            mem_type = mt_pinned;
+            break;
+        case cudaMemoryTypeUnregistered:
+            mem_type = mt_simple;
+            break;
+        case cudaMemoryTypeManaged:
+            mem_type = mt_unified;
+            break;
+        default:
+            throw std::logic_error("ERROR: memory type is not supported");
+            break;
+        }
+    }
     assert(mem_type < mt_last);
     assert(kernel_type < cmm_last);
 
