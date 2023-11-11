@@ -6,7 +6,7 @@
 
 int main(int argc, char** argv) {
     int N = 1000;
-    int n_runs = 100;
+    int n_runs = 10;
     int seed = 123;
 
     switch (argc)
