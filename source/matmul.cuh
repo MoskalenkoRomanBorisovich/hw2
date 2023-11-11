@@ -8,6 +8,8 @@
 #include <numeric>
 #include "typedefs.h"
 
+#include "cublas_v2.h"
+
 /*
   a [M][K]
   b [K][N]
@@ -272,7 +274,6 @@ void matmul_cuda(
     uint_fast32_t n_streams // number of cuda streams
 )
 {
-
     uint_fast32_t mem_type = 0; // type of memory allocation of ha, hb, hc
     {
         cudaPointerAttributes a_atr, b_atr, c_atr;
@@ -320,7 +321,7 @@ void matmul_cuda(
     const uint_fast32_t c_size = M * N;
 
     const std::vector<uint_fast32_t>& stream_cols = get_stream_cols_div_by_block(M, n_streams);
-    n_streams = stream_cols.size() - 1; // if sies changed so not all streams are necessery 
+    n_streams = stream_cols.size() - 1; // if sizes changed so not all streams will be necessery 
     cudaStream_t stream[n_streams];
     for (uint_fast32_t st = 0; st < n_streams; ++st) {
         cudaStreamCreate(&stream[st]);
@@ -339,7 +340,15 @@ void matmul_cuda(
     cuda_check();
 
 
-    // pass matrix a whole
+    cublasHandle_t handle[n_streams];
+    if (kernel_type == cmm_cublas) {
+        for (uint_fast32_t st = 0; st < n_streams; ++st) {
+            cublasCreate(&handle[st]);
+            cublasSetStream(handle[st], stream[st]);
+        }
+    }
+
+    // pass whole matrix a 
     if (mem_type == mt_simple || mem_type == mt_pinned) {
         cudaMalloc((void**)&da, a_size * sizeof(double));
         cudaMalloc((void**)&db, b_size * sizeof(double));
@@ -379,11 +388,15 @@ void matmul_cuda(
 
     cuda_check();
 
-    if (kernel_type == cmm_simple) {
+    const double alpha = 1;
+    const double beta = 0.;
+    switch (kernel_type)
+    {
+    case cmm_simple:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
             dim3 TPB(BLOCKSIZE, BLOCKSIZE);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_1 << <BPG, TPB >> > (
+            d_matmul_1 << <BPG, TPB, 0, stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
@@ -391,12 +404,12 @@ void matmul_cuda(
                 db + stream_cols[st] * K,
                 dc + stream_cols[st] * M);
         }
-    }
-    else if (kernel_type == cmm_shared) {
+        break;
+    case cmm_shared:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
             dim3 TPB(BLOCKSIZE, BLOCKSIZE);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared << <BPG, TPB >> > (
+            d_matmul_shared << <BPG, TPB, 2 * BLOCKSIZE * BLOCKSIZE * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
@@ -404,12 +417,12 @@ void matmul_cuda(
                 db + stream_cols[st] * K,
                 dc + stream_cols[st] * M);
         }
-    }
-    else if (kernel_type == cmm_shared_2) {
+        break;
+    case cmm_shared_2:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
             dim3 TPB(BLOCKSIZE, BLOCKSIZE);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared_2 << <BPG, TPB >> > (
+            d_matmul_shared_2 << <BPG, TPB, 2 * BLOCKSIZE * BLOCKSIZE * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
@@ -417,12 +430,12 @@ void matmul_cuda(
                 db + stream_cols[st] * K,
                 dc + stream_cols[st] * M);
         }
-    }
-    else if (kernel_type == cmm_shared_3) {
+        break;
+    case cmm_shared_3:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
             dim3 TPB(BLOCKSIZE, BLOCKSIZE);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared_2 << <BPG, TPB >> > (
+            d_matmul_shared_3 << <BPG, TPB, 2 * BLOCKSIZE * (BLOCKSIZE + 1) * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
@@ -430,6 +443,31 @@ void matmul_cuda(
                 db + stream_cols[st] * K,
                 dc + stream_cols[st] * M);
         }
+        break;
+    case cmm_cublas:
+        for (uint_fast32_t st = 0; st < n_streams; ++st) {
+            uint_fast32_t cur_N = stream_cols[st + 1] - stream_cols[st];
+            cublasStatus_t stat = cublasDgemm(
+                handle[st],
+                CUBLAS_OP_N,
+                CUBLAS_OP_N,
+                M,
+                cur_N,
+                K,
+                &alpha,
+                da,
+                M,
+                db + stream_cols[st] * K,
+                K,
+                &beta,
+                dc + stream_cols[st] * M,
+                M);
+            assert(!stat);
+        }
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     cuda_check();
@@ -439,7 +477,9 @@ void matmul_cuda(
             cudaMemcpyAsync(
                 hc + stream_cols[st] * M,
                 dc + stream_cols[st] * M,
-                (stream_cols[st + 1] - stream_cols[st]) * M * sizeof(double), cudaMemcpyDeviceToHost);
+                (stream_cols[st + 1] - stream_cols[st]) * M * sizeof(double),
+                cudaMemcpyDeviceToHost,
+                stream[st]);
         }
         cudaDeviceSynchronize();
         cudaFree(da);
@@ -456,6 +496,14 @@ void matmul_cuda(
         }
     }
 
+    cuda_check();
+
+
+    if (kernel_type == cmm_cublas) {
+        for (uint_fast32_t st = 0; st < n_streams; ++st) {
+            cublasDestroy(handle[st]);
+        }
+    }
     cuda_check();
 
     cudaDeviceSynchronize();

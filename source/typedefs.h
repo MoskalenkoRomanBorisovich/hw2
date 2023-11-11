@@ -24,6 +24,7 @@ enum cmm_kernels {
     cmm_shared,
     cmm_shared_2,
     cmm_shared_3,
+    cmm_cublas,
     cmm_last,
 };
 
@@ -32,4 +33,5 @@ char kernel_names[cmm_last][15] = {
     "Shared",
     "Shared_2",
     "Shared_3",
+    "cuBLAS",
 };
