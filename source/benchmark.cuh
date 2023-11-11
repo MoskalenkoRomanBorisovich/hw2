@@ -22,15 +22,16 @@ void benchmark_all(
     const uint32_t N
 ) {
     constexpr uint8_t stream_pow_max = 3;
-    constexpr uint32_t n_funcs = mt_last * cmm_last * (stream_pow_max + 1) + (/*cuBLAS*/1);
+    constexpr uint32_t n_funcs = mt_last * cmm_last * (stream_pow_max + 1);
     const uint32_t N2 = N * N;
     const uint32_t bytes = N * N * sizeof(double);
 
-    double* a, * b, * c, * ha, * hb, * hc, * ma, * mb, * mc;
+    double* a, * b, * c_cur, * c_prev, * ha, * hb, * hc, * ma, * mb, * mc;
     // pageable memory
     a = (double*)malloc(bytes);
     b = (double*)malloc(bytes);
-    c = (double*)malloc(bytes * n_funcs);
+    c_cur = (double*)malloc(bytes);
+    c_prev = (double*)malloc(bytes);
     // pinned memory
     cudaMallocHost(&ha, bytes);
     cudaMallocHost(&hb, bytes);
@@ -39,13 +40,6 @@ void benchmark_all(
     cudaMallocManaged(&ma, bytes);
     cudaMallocManaged(&mb, bytes);
     cudaMallocManaged(&mc, bytes);
-    // cuBLAS
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-    double* bla, * blb, * blc;
-    cudaMalloc((void**)&bla, bytes);
-    cudaMalloc((void**)&blb, bytes);
-    cudaMalloc((void**)&blc, bytes);
 
     uint32_t i = 0; // utility function counter
 
@@ -65,9 +59,30 @@ void benchmark_all(
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&cur_time, start, stop);
         tot_time[i] += cur_time;
-        double* c_cur = c + i * N2;
         if (hc != c_cur) // copy result to result matrix array
             memcpy(c_cur, hc, bytes);
+
+        if (i == 0) {
+            std::swap(c_cur, c_prev);
+        }
+        else { // check differense i result
+            double dif = mat_diff(c_prev, c_cur, N, N);
+            if (dif > TOL) {
+                printf("\n\nMatrixes are not equal for %d and %d, difference: %lf\n", i, i - 1, dif);
+                fflush(stdout);
+
+                const uint32_t s = std::min((uint32_t)5, N); // submatrix size to print
+                std::cout << "\nmatrix A:\n";
+                print_matrix(a, N, N, s, s);
+                std::cout << "\nmatrix B:\n";
+                print_matrix(b, N, N, s, s);
+                std::cout << "\nfirst matrix:\n";
+                print_matrix(c_prev, N, N, s, s);
+                std::cout << "\nsecond matrix:\n";
+                print_matrix(c_cur, N, N, s, s);
+                assert(0);
+            }
+        }
         ++i;
         };
 
@@ -87,8 +102,8 @@ void benchmark_all(
             for (uint_fast8_t cmm = 0; cmm < cmm_last; ++cmm) {
                 time_wrap(
                     [&]() {
-                        matmul_cuda(N, N, N, a, b, c + i * N2, cmm, n_streams);
-                        return c + i * N2;
+                        matmul_cuda(N, N, N, a, b, c_cur, cmm, n_streams);
+                        return c_cur;
                     });
                 time_wrap(
                     [&]() {
@@ -103,44 +118,6 @@ void benchmark_all(
             }
             n_streams *= 2;
         }
-
-        // measure cuBLAS
-        time_wrap(
-            [&]() {
-                cublasStatus_t stat;
-                stat = cublasSetMatrix(N, N, sizeof(double), a, N, bla, N);
-                assert(!stat);
-                stat = cublasSetMatrix(N, N, sizeof(double), b, N, blb, N);
-                assert(!stat);
-                double alpha = 1.0;
-                double beta = 0.0;
-                stat = cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, N, N, &alpha, bla, N, blb, N, &beta, blc, N);
-                assert(!stat);
-                stat = cublasGetMatrix(N, N, sizeof(double), blc, N, c + i * N2, N);
-                return c + i * N2;
-            });
-
-
-        // check for differences in results
-        for (uint_fast8_t j = 0; j < n_funcs - 1; ++j) {
-            double dif = mat_diff(&c[j * N2], &c[(j + 1) * N2], N, N);
-            if (dif > TOL) {
-                printf("\n\nOn run %i matrixes are not equal for %d and %d, difference: %lf\n", run, j, j + 1, dif);
-                fflush(stdout);
-
-                constexpr int s = 5;
-                std::cout << "\nmatrix A:\n";
-                print_matrix(a, N, N, s, s);
-                std::cout << "\nmatrix B:\n";
-                print_matrix(b, N, N, s, s);
-                std::cout << "\nfirst matrix:\n";
-                print_matrix(c + j * N2, N, N, s, s);
-                std::cout << "\nsecond matrix:\n";
-                print_matrix(c + (j + 1) * N2, N, N, s, s);
-                assert(0);
-            }
-        }
-
     }
 
     // get mean time
@@ -150,7 +127,8 @@ void benchmark_all(
     // free all arrays
     free(a);
     free(b);
-    free(c);
+    free(c_cur);
+    free(c_prev);
     cudaFree(ma);
     cudaFree(mb);
     cudaFree(mc);
@@ -159,10 +137,6 @@ void benchmark_all(
     cudaFreeHost(hc);
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
-    cudaFree(bla);
-    cudaFree(blb);
-    cudaFree(blc);
-    cublasDestroy(handle);
 
     double gflop_ms = get_flop_count(N, N, N) * 1e-6;
     { // pretty print also in csv format
@@ -180,8 +154,5 @@ void benchmark_all(
             }
             n_streams *= 2;
         }
-
-        printf("%5i | %7i | %10s | %10s | %15f | %15f\n", N, 0, "cuBLAS_v2", memory_names[mt_unified], tot_time[i], gflop_ms / tot_time[i]);
-        ++i;
     }
 }
