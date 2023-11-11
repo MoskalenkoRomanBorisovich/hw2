@@ -18,5 +18,10 @@ echo n_runs: $N_RUNS seed: $SEED
 echo
 for matrix_size in 2000 3000 4000 5000; do
     echo matrix_size: $matrix_size
-    ./a.out $matrix_size $N_RUNS $SEED >bemchmark_results/matrix_size_${matrix_size}.csv
+    echo run cuda
+    ./build/main_cu $matrix_size $N_RUNS $SEED >bemchmark_results/cuda_${matrix_size}.csv
+    echo cuda finished
+    echo run omp
+    ./build/main_omp $matrix_size $N_RUNS $SEED >bemchmark_results/omp_${matrix_size}.csv
+    echo omp finished
 done

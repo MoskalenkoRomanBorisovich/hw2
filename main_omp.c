@@ -1,6 +1,7 @@
 #include <omp.h>
 #include <stdint.h>
 #include "source/utils.h"
+#include <assert.h>
 
 void gpu_dgemm_omp(
     const uint_fast32_t M,
@@ -21,6 +22,23 @@ void gpu_dgemm_omp(
         }
     }
 }
+
+void test_omp() {
+    const int N = 3;
+    double a[9] = { 1,2,3,4,5,6,7,8,9 };
+    double b[9] = { 9,8,7,6,5,4,3,2,1 };
+    double c[9];
+    double c_correct[9] = { 9, 114, 138, 54, 69, 84, 18, 24, 30 };
+    gpu_dgemm_omp(N, N, N, a, b, c);
+
+
+    double dif mat_diff(c, c_correct);
+
+    assert(dif < TOL);
+}
+
+
+
 int main(int argc, char* argv[])
 {
     uint32_t N = 1000;
