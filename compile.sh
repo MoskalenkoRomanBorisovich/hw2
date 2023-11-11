@@ -1,7 +1,7 @@
 #!/bin/bash
 mkdir -p build
 
-module load module load nvidia_sdk/nvhpc/23.5
+module load nvidia_sdk/nvhpc/23.5
 
 nvcc -O3 main.cu -lcublas -o build/main_cu
 
