@@ -41,6 +41,8 @@ void test_omp() {
 
 int main(int argc, char* argv[])
 {
+
+    test_omp();
     uint32_t N = 1000;
     uint32_t n_runs = 10;
     uint32_t seed = 123;
