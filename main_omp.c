@@ -32,7 +32,7 @@ void test_omp() {
     gpu_dgemm_omp(N, N, N, a, b, c);
 
 
-    double dif mat_diff(c, c_correct);
+    double dif = mat_diff(c, c_correct);
 
     assert(dif < TOL);
 }
