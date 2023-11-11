@@ -28,11 +28,14 @@ void test_omp() {
     double a[9] = { 1,2,3,4,5,6,7,8,9 };
     double b[9] = { 9,8,7,6,5,4,3,2,1 };
     double c[9];
-    double c_correct[9] = { 9, 114, 138, 54, 69, 84, 18, 24, 30 };
+    double c_correct[9] = { 90, 114, 138, 54, 69, 84, 18, 24, 30 };
     gpu_dgemm_omp(N, N, N, a, b, c);
 
 
     double dif = mat_diff(c, c_correct, N, N);
+
+    // printf("%f", dif);
+    // print_matrix(c, N, N, N);
 
     assert(dif < TOL);
 }
