@@ -20,32 +20,13 @@
   c[i, j] = i + M * j
 */
 
-/*
-    ========================== V1 ==========================
-*/
-
-
-namespace {
-#define BLOCKSIZE 32
-
-// returns first col of matrix a  for each stream
-// std::vector<uint_fast32_t> get_stream_cols(uint_fast32_t N, uint_fast32_t n_streams) {
-//     const uint_fast32_t size = N / n_streams;
-//     if (size == 0)
-//         n_streams = N;
-//     std::vector<uint_fast32_t> res(n_streams + 1, size);
-//     std::for_each(res.begin(), res.begin() + N % n_streams, [](uint_fast32_t& a) { ++a;});
-//     std::exclusive_scan(res.begin(), res.end(), res.begin(), 0);
-//     return res;
-// }
-
-// same as get_stream_cols, but number of cols is mostly devisible by BLOCKSIZE
-std::vector<uint_fast32_t> get_stream_cols_div_by_block(uint_fast32_t N, uint_fast32_t n_streams) {
+// returns first col of matrix a for each stream, but number of cols is mostly devisible by block side
+std::vector<uint_fast32_t> get_stream_cols_div_by_block(uint_fast32_t N, uint_fast32_t n_streams, uint_fast32_t bside) {
     uint_fast32_t size = N / n_streams;
     {
-        const uint_fast32_t re = size % BLOCKSIZE;
+        const uint_fast32_t re = size % bside;
         if (re != 0)
-            size += BLOCKSIZE - re;
+            size += bside - re;
     }
     const uint_fast32_t used_streams = (N + size - 1) / size;
     std::vector<uint_fast32_t> res(used_streams + 1, size);
@@ -61,8 +42,6 @@ std::vector<uint_fast32_t> get_stream_cols_div_by_block(uint_fast32_t N, uint_fa
         sum += r;
     }
     return res;
-}
-
 }
 
 
@@ -98,16 +77,17 @@ __global__ void d_matmul_shared(
     const uint_fast32_t K,
     const double* da,
     const double* db,
-    double* dc)
+    double* dc,
+    const int bside)
 {
     // assume blockDim.x == blockDim.y
     const uint_fast32_t row = blockDim.x * blockIdx.x + threadIdx.x;
     const uint_fast32_t col = blockDim.y * blockIdx.y + threadIdx.y;
 
+    extern __shared__ double shared[];
 
-    constexpr uint_fast16_t bsize = BLOCKSIZE;
-    __shared__ double sh_a[bsize][bsize];
-    __shared__ double sh_b[bsize][bsize];
+    double* sh_a = shared; // [bside][bside]
+    double* sh_b = shared + bside * bside; // [bside][bside]
 
     const uint_fast32_t k_blocks = K / blockDim.x;
     double res = 0.0;
@@ -118,26 +98,26 @@ __global__ void d_matmul_shared(
     for (uint_fast32_t k = 0; k < k_blocks; ++k) {
         // a_col = k * blockDim.x + threadIdx.y;
         if (is_row)
-            sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.x * bside + threadIdx.y] = da[row + M * (k * blockDim.x + threadIdx.y)];
         // b_row = k * blockDim.x + threadIdx.x
         if (is_col)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bside + threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < blockDim.x; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[threadIdx.x * bside + kb] * sh_b[kb * bside + threadIdx.y];
         }
         __syncthreads();
     }
-    const uint_fast32_t kr = K % bsize;
+    const uint_fast32_t kr = K % bside;
     if (kr != 0) {
         if (is_row && threadIdx.y < kr)
-            sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.x * bside + threadIdx.y] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
 
         if (is_col && threadIdx.x < kr)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bside + threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < kr; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[threadIdx.x * bside + kb] * sh_b[kb * bside + threadIdx.y];
         }
     }
 
@@ -156,16 +136,17 @@ __global__ void d_matmul_shared_2(
     const uint_fast32_t K,
     const double* da,
     const double* db,
-    double* dc)
+    double* dc,
+    const int bside)
 {
     // assume blockDim.x == blockDim.y
     const uint_fast32_t row = blockDim.x * blockIdx.x + threadIdx.x;
     const uint_fast32_t col = blockDim.y * blockIdx.y + threadIdx.y;
 
+    extern __shared__ double shared[];
 
-    constexpr uint_fast16_t bsize = BLOCKSIZE;
-    __shared__ double sh_a[bsize][bsize]; // transposed
-    __shared__ double sh_b[bsize][bsize];
+    double* sh_a = shared; // [bside][bside]
+    double* sh_b = shared + bside * bside; // [bside][bside]
 
     const uint_fast32_t k_blocks = K / blockDim.x;
     double res = 0.0;
@@ -176,26 +157,26 @@ __global__ void d_matmul_shared_2(
     for (uint_fast32_t k = 0; k < k_blocks; ++k) {
         // a_col = k * blockDim.x + threadIdx.y;
         if (is_row)
-            sh_a[threadIdx.y][threadIdx.x] = da[row + M * (k * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.y * bside + threadIdx.x] = da[row + M * (k * blockDim.x + threadIdx.y)];
         // b_row = k * blockDim.x + threadIdx.x
         if (is_col)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bside + threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < blockDim.x; ++kb) {
-            res += sh_a[kb][threadIdx.x] * sh_b[kb][threadIdx.y];
+            res += sh_a[kb * bside + threadIdx.x] * sh_b[kb * bside + threadIdx.y];
         }
         __syncthreads();
     }
-    const uint_fast32_t kr = K % bsize;
+    const uint_fast32_t kr = K % bside;
     if (kr != 0) {
         if (is_row && threadIdx.y < kr)
-            sh_a[threadIdx.y][threadIdx.x] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.y * bside + threadIdx.x] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
 
         if (is_col && threadIdx.x < kr)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bside + threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < kr; ++kb) {
-            res += sh_a[kb][threadIdx.x] * sh_b[kb][threadIdx.y];
+            res += sh_a[kb * bside + threadIdx.x] * sh_b[kb * bside + threadIdx.y];
         }
     }
 
@@ -214,16 +195,18 @@ __global__ void d_matmul_shared_3(
     const uint_fast32_t K,
     const double* da,
     const double* db,
-    double* dc)
+    double* dc,
+    const int bside)
 {
     // assume blockDim.x == blockDim.y
     const uint_fast32_t row = blockDim.x * blockIdx.x + threadIdx.x;
     const uint_fast32_t col = blockDim.y * blockIdx.y + threadIdx.y;
 
+    extern __shared__ double shared[];
 
-    constexpr uint_fast16_t bsize = BLOCKSIZE;
-    __shared__ double sh_a[bsize][bsize + 1];
-    __shared__ double sh_b[bsize][bsize + 1];
+    const int bsy = bside + 1;
+    double* sh_a = shared; // [bside][bsy]
+    double* sh_b = shared + bside * bsy; // [bside][bsy]
 
     const uint_fast32_t k_blocks = K / blockDim.x;
     double res = 0.0;
@@ -234,26 +217,26 @@ __global__ void d_matmul_shared_3(
     for (uint_fast32_t k = 0; k < k_blocks; ++k) {
         // a_col = k * blockDim.x + threadIdx.y;
         if (is_row)
-            sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.x * bsy + threadIdx.y] = da[row + M * (k * blockDim.x + threadIdx.y)];
         // b_row = k * blockDim.x + threadIdx.x
         if (is_col)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bsy + threadIdx.y] = db[(k * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < blockDim.x; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[threadIdx.x * bsy + kb] * sh_b[kb * bsy + threadIdx.y];
         }
         __syncthreads();
     }
-    const uint_fast32_t kr = K % bsize;
+    const uint_fast32_t kr = K % bside;
     if (kr != 0) {
         if (is_row && threadIdx.y < kr)
-            sh_a[threadIdx.x][threadIdx.y] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
+            sh_a[threadIdx.x * bsy + threadIdx.y] = da[row + M * (k_blocks * blockDim.x + threadIdx.y)];
 
         if (is_col && threadIdx.x < kr)
-            sh_b[threadIdx.x][threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
+            sh_b[threadIdx.x * bsy + threadIdx.y] = db[(k_blocks * blockDim.x + threadIdx.x) + K * col];
         __syncthreads();
         for (uint_fast32_t kb = 0; kb < kr; ++kb) {
-            res += sh_a[threadIdx.x][kb] * sh_b[kb][threadIdx.y];
+            res += sh_a[threadIdx.x * bsy + kb] * sh_b[kb * bsy + threadIdx.y];
         }
     }
 
@@ -271,7 +254,8 @@ void matmul_cuda(
     double* hb,
     double* hc,
     const uint_fast32_t kernel_type, // type of kernel
-    uint_fast32_t n_streams // number of cuda streams
+    uint_fast32_t n_streams, // number of cuda streams
+    uint_fast32_t bside // side of cuda block
 )
 {
     uint_fast32_t mem_type = 0; // type of memory allocation of ha, hb, hc
@@ -320,7 +304,7 @@ void matmul_cuda(
     const uint_fast32_t b_size = K * N;
     const uint_fast32_t c_size = M * N;
 
-    const std::vector<uint_fast32_t>& stream_cols = get_stream_cols_div_by_block(M, n_streams);
+    const std::vector<uint_fast32_t>& stream_cols = get_stream_cols_div_by_block(M, n_streams, bside);
     n_streams = stream_cols.size() - 1; // if sizes changed so not all streams will be necessery 
     cudaStream_t stream[n_streams];
     for (uint_fast32_t st = 0; st < n_streams; ++st) {
@@ -394,7 +378,7 @@ void matmul_cuda(
     {
     case cmm_simple:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
-            dim3 TPB(BLOCKSIZE, BLOCKSIZE);
+            dim3 TPB(bside, bside);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
             d_matmul_1 << <BPG, TPB, 0, stream[st] >> > (
                 M,
@@ -407,41 +391,44 @@ void matmul_cuda(
         break;
     case cmm_shared:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
-            dim3 TPB(BLOCKSIZE, BLOCKSIZE);
+            dim3 TPB(bside, bside);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared << <BPG, TPB, 2 * BLOCKSIZE * BLOCKSIZE * sizeof(double), stream[st] >> > (
+            d_matmul_shared << <BPG, TPB, 2 * bside * bside * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
                 da,
                 db + stream_cols[st] * K,
-                dc + stream_cols[st] * M);
+                dc + stream_cols[st] * M,
+                bside);
         }
         break;
     case cmm_shared_2:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
-            dim3 TPB(BLOCKSIZE, BLOCKSIZE);
+            dim3 TPB(bside, bside);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared_2 << <BPG, TPB, 2 * BLOCKSIZE * BLOCKSIZE * sizeof(double), stream[st] >> > (
+            d_matmul_shared_2 << <BPG, TPB, 2 * bside * bside * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
                 da,
                 db + stream_cols[st] * K,
-                dc + stream_cols[st] * M);
+                dc + stream_cols[st] * M,
+                bside);
         }
         break;
     case cmm_shared_3:
         for (uint_fast32_t st = 0; st < n_streams; ++st) {
-            dim3 TPB(BLOCKSIZE, BLOCKSIZE);
+            dim3 TPB(bside, bside);
             dim3 BPG((M + TPB.x - 1) / TPB.x, (stream_cols[st + 1] - stream_cols[st] + TPB.y - 1) / TPB.y);
-            d_matmul_shared_3 << <BPG, TPB, 2 * BLOCKSIZE * (BLOCKSIZE + 1) * sizeof(double), stream[st] >> > (
+            d_matmul_shared_3 << <BPG, TPB, 2 * bside * (bside + 1) * sizeof(double), stream[st] >> > (
                 M,
                 stream_cols[st + 1] - stream_cols[st],
                 K,
                 da,
                 db + stream_cols[st] * K,
-                dc + stream_cols[st] * M);
+                dc + stream_cols[st] * M,
+                bside);
         }
         break;
     case cmm_cublas:
