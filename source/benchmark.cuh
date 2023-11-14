@@ -143,23 +143,23 @@ void benchmark_all(
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 
-    // double gflop_ms = get_flop_count(N, N, N) * 1e-6;
-    // { // pretty print also in csv format
-    //     printf("%5s | %5s | %7s | %10s | %10s | %15s | %15s\n", "N", "bside", "streams", "kernel", "memory", "Time (ms)", "GFLOPS");
-    //     printf("\n");
-    //     uint32_t n_streams = 1;
-    //     uint32_t i = 0;
-    //     for (int stream_pow = 0; stream_pow <= stream_pow_max; ++stream_pow) {
-    //         for (int cmm = 0; cmm < cmm_last; ++cmm) {
-    //             for (const int& bs : bsides) {
-    //                 for (int mem = 0; mem < mt_last; ++mem) {
-    //                     printf("%5i | %5i | %7i | %10s | %10s | %15f | %15f\n", N, bs, n_streams, kernel_names[cmm], memory_names[mem], tot_time[i], gflop_ms / tot_time[i]);
-    //                     ++i;
-    //                 }
-    //                 printf("\n");
-    //             }
-    //         }
-    //         n_streams *= 2;
-    //     }
-    // }
+    double gflop_ms = get_flop_count(N, N, N) * 1e-6;
+    { // pretty print also in csv format
+        printf("%5s | %5s | %7s | %10s | %10s | %15s | %15s\n", "N", "bside", "streams", "kernel", "memory", "Time (ms)", "GFLOPS");
+        printf("\n");
+        uint32_t n_streams = 1;
+        uint32_t i = 0;
+        for (int stream_pow = 0; stream_pow <= stream_pow_max; ++stream_pow) {
+            for (int cmm = 0; cmm < cmm_last; ++cmm) {
+                for (const int& bs : bsides) {
+                    for (int mem = 0; mem < mt_last; ++mem) {
+                        printf("%5i | %5i | %7i | %10s | %10s | %15f | %15f\n", N, bs, n_streams, kernel_names[cmm], memory_names[mem], tot_time[i], gflop_ms / tot_time[i]);
+                        ++i;
+                    }
+                    printf("\n");
+                }
+            }
+            n_streams *= 2;
+        }
+    }
 }

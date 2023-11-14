@@ -4,6 +4,7 @@ mkdir -p build
 module load nvidia_sdk/nvhpc/23.5
 
 echo compiling cuda
+# export NVCC_PREPEND_FLAGS='-ccbin  /usr/bin/gcc'
 nvcc -O3 main.cu -lcublas -o build/main_cu
 echo complete
 
